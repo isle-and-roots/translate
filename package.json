@@ -1,0 +1,31 @@
+{
+  "name": "meet-interpreter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Google Meet English↔Japanese bidirectional interpreter (Chrome extension + Cloudflare Worker)",
+  "type": "module",
+  "workspaces": [
+    "worker"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:extension": "node scripts/build.mjs",
+    "build:worker": "npm run build --workspace=worker",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p worker/tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "gen:pairing": "node scripts/generate-pairing-token.mjs",
+    "clean": "rm -rf dist extension/dist"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "@types/node": "^22.13.10",
+    "esbuild": "^0.25.1",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.8"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

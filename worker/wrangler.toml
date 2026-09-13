@@ -1,0 +1,19 @@
+name = "meet-interpreter-broker"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+[vars]
+ALLOWED_EXTENSION_ORIGIN = "chrome-extension://YOUR_EXTENSION_ID"
+ENABLED = "true"
+
+# Secrets (set via `wrangler secret put`):
+# - OPENAI_API_KEY
+# - PAIRING_TOKEN_SHA256
+#
+# Optional production Rate Limiting binding (20 / 60s):
+# [[unsafe.bindings]]
+# name = "TOKEN_RATE_LIMITER"
+# type = "ratelimit"
+# namespace_id = "1001"
+# simple = { limit = 20, period = 60 }

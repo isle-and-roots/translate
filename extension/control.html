@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Meet Interpreter Control</title>
+    <link rel="stylesheet" href="styles/app.css" />
+  </head>
+  <body class="control" data-meeting-state="IDLE">
+    <div class="wrap">
+      <header class="app-header">
+        <h1>Meet Interpreter</h1>
+        <p>コントロール窓（閉じても通訳は継続）</p>
+      </header>
+      <section class="panel">
+        <div class="row">
+          <span class="muted">状態</span>
+          <span class="status-pill" data-meeting-label>—</span>
+        </div>
+        <div class="row">
+          <span class="muted">受信</span>
+          <strong data-rx-state>OFF</strong>
+        </div>
+        <div class="row">
+          <span class="muted">送信</span>
+          <strong data-tx-state>OFF</strong>
+        </div>
+        <div class="row">
+          <span class="muted">経過</span>
+          <span data-elapsed>0:00</span>
+        </div>
+        <div class="row">
+          <span class="muted">概算費用</span>
+          <span data-cost>$0.00（概算）</span>
+        </div>
+        <p class="hint" data-message></p>
+        <p class="error" data-error></p>
+        <button id="btn-stop" class="danger">すべて停止</button>
+      </section>
+    </div>
+    <script type="module" src="control.js"></script>
+  </body>
+</html>
