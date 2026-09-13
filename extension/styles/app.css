@@ -133,6 +133,14 @@ button.primary {
   font-weight: 650;
 }
 
+button.secondary {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--border) 80%, white 20%);
+  color: var(--muted);
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
 button.danger {
   background: color-mix(in srgb, var(--danger) 25%, #24313c);
   border-color: color-mix(in srgb, var(--danger) 45%, var(--border));

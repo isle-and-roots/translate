@@ -12,7 +12,8 @@ import {
   type LocalSettings,
   type MeetingSnapshot,
   type MeetingState,
-} from "../../shared/protocol.js";import { appError, toAppError } from "../../shared/errors.js";
+} from "../../shared/protocol.js";
+import { appError, toAppError } from "../../shared/errors.js";
 import {
   acquirePhysicalMic,
   acquireTabStream,
@@ -164,9 +165,23 @@ export class MeetingController {
 
       await this.connectRx();
       this.setMeetingState("ACTIVE_RX");
-      this.snapshot.message =
-        "受信中。必要なら「自分の声を英語で送る」を有効にしてください。";
+      this.snapshot.message = "受信OK。続けて自分の声の英訳送信を開始します…";
       this.emit();
+
+      // UX: one-click start enables both directions immediately.
+      try {
+        await this.enableTx();
+        this.snapshot.message =
+          "双方向通訳中。相手の英語→日本語、自分の声→英語でMeetへ。";
+        this.emit();
+      } catch (txError) {
+        // Keep RX so the user can at least listen; TX emergency button retries.
+        this.snapshot.tx.lastError = toAppError(txError);
+        this.snapshot.message =
+          "受信は開始済み。送信の開始に失敗したので「送信を再開（緊急）」から再試行できます。";
+        this.composeMeetingState();
+        this.emit();
+      }
       return this.getSnapshot();
     } catch (error) {
       const appErr = toAppError(error);
@@ -257,7 +272,8 @@ export class MeetingController {
       this.txSegmentStartedAt = Date.now();
       this.snapshot.tx.connectedAtMs = this.txSegmentStartedAt;
       this.setMeetingState("ACTIVE_BOTH");
-      this.snapshot.message = "送信中。相手には英訳だけが届きます。";
+      this.snapshot.message =
+        "双方向通訳中。相手には英訳だけが届きます（緊急時は送信だけ停止可）。";
       this.emit();
       return this.getSnapshot();
     } catch (error) {
@@ -271,7 +287,7 @@ export class MeetingController {
     }
   }
 
-  async disableTx(message = "相手への英訳送信を停止しました"): Promise<MeetingSnapshot> {
+  async disableTx(message = "送信だけ停止しました（受信は継続）"): Promise<MeetingSnapshot> {
     await this.disableTxInternal();
     this.composeMeetingState();
     this.snapshot.message = message;
@@ -322,9 +338,13 @@ export class MeetingController {
     this.snapshot.renewRequired = false;
     await this.connectRx();
     if (wantTx) {
-      // Design: after renew, TX must be manually re-enabled.
-      this.snapshot.message =
-        "受信を更新しました。送信が必要なら再度有効にしてください。";
+      try {
+        await this.enableTx();
+        this.snapshot.message = "双方向セッションを更新しました";
+      } catch {
+        this.snapshot.message =
+          "受信を更新しました。送信は「送信を再開（緊急）」から再有効化してください。";
+      }
     } else {
       this.snapshot.message = "受信セッションを更新しました";
     }

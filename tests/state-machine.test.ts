@@ -30,4 +30,9 @@ describe("meeting state composition", () => {
   it("returns IDLE when nothing is captured", () => {
     expect(composeMeetingState("off", "off", false)).toBe("IDLE");
   });
+
+  it("one-click start target state is ACTIVE_BOTH", () => {
+    // Start flow connects RX then TX; success lands on both-active.
+    expect(composeMeetingState("active", "active", true)).toBe("ACTIVE_BOTH");
+  });
 });

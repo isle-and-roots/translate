@@ -25,8 +25,8 @@ const ui = bindStateUi({
     );
     txBtn.textContent =
       state.tx.state === "active" || state.tx.state === "connecting"
-        ? "相手への英訳を停止"
-        : "自分の声を英語で送る";
+        ? "送信だけ停止（緊急）"
+        : "送信を再開（緊急）";
     listenBtn.textContent = state.listeningOriginalOnly
       ? "訳音バランスへ戻す"
       : "原音を聞く";

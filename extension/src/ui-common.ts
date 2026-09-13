@@ -40,9 +40,9 @@ export function stateLabel(state: MeetingSnapshot["meetingState"]): string {
     case "CONNECTING_TX":
       return "準備中";
     case "ACTIVE_RX":
-      return "受信中";
+      return "受信のみ";
     case "ACTIVE_BOTH":
-      return "送信中";
+      return "双方向";
     case "DEGRADED":
       return "復旧待ち";
     case "STOPPING":
