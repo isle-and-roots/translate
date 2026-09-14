@@ -1,0 +1,18 @@
+{
+  "name": "translate",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Meet / Zoom 向け英日双方向通訳 — Sokuji を pin して配布物を再現ビルドするラッパー",
+  "sokujiVersion": "0.41.0",
+  "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "setup:desktop": "bash scripts/setup.sh --desktop",
+    "build:extension": "bash scripts/build-extension.sh",
+    "build:desktop": "bash scripts/build-desktop.sh",
+    "check": "bash scripts/check.sh",
+    "clean": "rm -rf dist"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
