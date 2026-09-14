@@ -136,10 +136,17 @@ Zoom スピーカー ──▶ BlackHole 16ch ──▶ 拡張（原音 + EN→J
 - 短期トークンはメモリ上で使い捨て、永続化しない
 - 音声・字幕・会議 URL・SDP・資格情報はログに出さない
 
+## 本番稼働
+
+シークレットの配備から受入・運用・ロールバックまでの手順は [docs/release.md](docs/release.md) にまとめています。CI（GitHub Actions）はテスト・型検査・拡張ビルド・Worker ドライランを毎回実行し、リポジトリ変数 `BROKER_BASE_URL` があれば配布用 zip をアーティファクトとして出力します。
+
 ## 開発
 
 ```bash
 npm run build          # 拡張を extension/dist へ
+npm run package        # extension/dist を dist/*.zip に固定（要 BROKER_BASE_URL 付きビルド）
+npm run build:worker   # Worker のドライランビルド
+npm run deploy:worker  # Worker をデプロイ（wrangler login 済みが前提）
 npm run typecheck      # TypeScript
 npm test               # 単体 / 契約テスト
 npm run gen:pairing    # 接続コード生成

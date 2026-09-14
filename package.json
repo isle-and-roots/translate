@@ -11,6 +11,8 @@
     "build": "node scripts/build.mjs",
     "build:extension": "node scripts/build.mjs",
     "build:worker": "npm run build --workspace=worker",
+    "package": "node scripts/package-extension.mjs",
+    "deploy:worker": "npm run deploy --workspace=worker",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p worker/tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
