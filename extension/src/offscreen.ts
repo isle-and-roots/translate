@@ -1,11 +1,12 @@
 import {
   createIdleSnapshot,
+  isOffscreenStartMessage,
   type CommandReply,
   type LocalSettings,
   type MeetingSnapshot,
   type RuntimeEvent,
 } from "../../shared/protocol.js";
-import { toAppError } from "../../shared/errors.js";
+import { appError, toAppError } from "../../shared/errors.js";
 import { MeetingController } from "./meeting-controller.js";
 
 const controller = new MeetingController({
@@ -80,11 +81,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           sendResponse(reply(requestId, true));
           return;
         case "START_RX": {
-          const tabId = Number((message as { tabId: number }).tabId);
-          const tabTitle =
-            ((message as { tabTitle?: string | null }).tabTitle as string | null) ??
-            null;
-          latest = await controller.startRx(tabId, tabTitle);
+          if (!isOffscreenStartMessage(message)) {
+            throw appError("INVALID_MESSAGE", "開始メッセージの形式が不正です");
+          }
+          latest = await controller.startRx(message.source);
           sendResponse(reply(requestId, true));
           return;
         }

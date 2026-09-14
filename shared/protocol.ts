@@ -1,5 +1,21 @@
 /** Shared message, settings, and state contracts for Meet Interpreter V1. */
 
+import {
+  isCaptureRequest,
+  isCaptureSource,
+  type CaptureMode,
+  type CaptureRequest,
+  type CaptureSource,
+  type MeetingPlatform,
+} from "./platform.js";
+
+export type {
+  CaptureMode,
+  CaptureRequest,
+  CaptureSource,
+  MeetingPlatform,
+} from "./platform.js";
+
 export const SCHEMA_VERSION = 1 as const;
 export const MODEL_ID = "gpt-realtime-translate" as const;
 export const COST_PER_MINUTE_USD = 0.034;
@@ -38,9 +54,10 @@ export type MeetingState =
 
 export type ErrorCode =
   | "INVALID_MESSAGE"
-  | "NOT_MEET_TAB"
+  | "NOT_MEETING_TAB"
   | "ALREADY_RUNNING"
   | "MISSING_SETTINGS"
+  | "ROUTING_CONFLICT"
   | "MISSING_PAIRING"
   | "PERMISSION_DENIED"
   | "DEVICE_MISSING"
@@ -72,6 +89,7 @@ export interface DeviceLabels {
   physicalMic?: string;
   headphoneOutput?: string;
   virtualOutput?: string;
+  remoteCaptureInput?: string;
 }
 
 export interface LocalSettings {
@@ -79,6 +97,11 @@ export interface LocalSettings {
   physicalMicId: string;
   headphoneOutputId: string;
   virtualOutputId: string;
+  /**
+   * Zoom desktop app only: the virtual *input* (e.g. BlackHole 16ch) that the
+   * Zoom app's speaker is routed to. Empty when only tab capture is used.
+   */
+  remoteCaptureInputId: string;
   originalGain: number;
   translationGain: number;
   deviceLabels: DeviceLabels;
@@ -103,9 +126,11 @@ export interface DeviceSnapshot {
   physicalMicId: string | null;
   headphoneOutputId: string | null;
   virtualOutputId: string | null;
+  remoteCaptureInputId: string | null;
   physicalMicLabel: string | null;
   headphoneOutputLabel: string | null;
   virtualOutputLabel: string | null;
+  remoteCaptureInputLabel: string | null;
   sinkReadyRx: boolean;
   sinkReadyTx: boolean;
 }
@@ -129,6 +154,8 @@ export interface MeetingSnapshot {
   originalGain: number;
   translationGain: number;
   listeningOriginalOnly: boolean;
+  platform: MeetingPlatform | null;
+  captureMode: CaptureMode | null;
   tabId: number | null;
   tabTitle: string | null;
   rx: DirectionSnapshot;
@@ -140,7 +167,7 @@ export interface MeetingSnapshot {
 }
 
 export type Command =
-  | { type: "START_RX"; requestId: string; tabId: number }
+  | { type: "START_RX"; requestId: string; capture: CaptureRequest }
   | { type: "DISABLE_RX"; requestId: string }
   | { type: "ENABLE_TX"; requestId: string }
   | { type: "DISABLE_TX"; requestId: string }
@@ -174,6 +201,34 @@ export type CommandReply = {
   error?: AppError;
 };
 
+/** Background → offscreen START_RX payload (source already resolved). */
+export interface OffscreenStartMessage {
+  channel: "offscreen";
+  type: "START_RX";
+  requestId: string;
+  source: CaptureSource;
+  settings: LocalSettings;
+  hasPairing: boolean;
+}
+
+export function isOffscreenStartMessage(
+  value: unknown,
+): value is OffscreenStartMessage {
+  if (!value || typeof value !== "object") return false;
+  const maybe = value as {
+    channel?: unknown;
+    type?: unknown;
+    source?: unknown;
+    settings?: unknown;
+  };
+  return (
+    maybe.channel === "offscreen" &&
+    maybe.type === "START_RX" &&
+    isCaptureSource(maybe.source) &&
+    Boolean(maybe.settings)
+  );
+}
+
 export type RuntimeEvent =
   | {
       type: "STATE_CHANGED";
@@ -206,6 +261,7 @@ export function createDefaultSettings(
     physicalMicId: "",
     headphoneOutputId: "",
     virtualOutputId: "",
+    remoteCaptureInputId: "",
     originalGain: DEFAULT_ORIGINAL_GAIN,
     translationGain: DEFAULT_TRANSLATION_GAIN,
     deviceLabels: {},
@@ -235,6 +291,8 @@ export function createIdleSnapshot(): MeetingSnapshot {
     originalGain: DEFAULT_ORIGINAL_GAIN,
     translationGain: DEFAULT_TRANSLATION_GAIN,
     listeningOriginalOnly: false,
+    platform: null,
+    captureMode: null,
     tabId: null,
     tabTitle: null,
     rx: direction(),
@@ -243,9 +301,11 @@ export function createIdleSnapshot(): MeetingSnapshot {
       physicalMicId: null,
       headphoneOutputId: null,
       virtualOutputId: null,
+      remoteCaptureInputId: null,
       physicalMicLabel: null,
       headphoneOutputLabel: null,
       virtualOutputLabel: null,
+      remoteCaptureInputLabel: null,
       sinkReadyRx: false,
       sinkReadyTx: false,
     },
@@ -269,7 +329,7 @@ export function isCommand(value: unknown): value is Command {
   }
   switch (maybe.type) {
     case "START_RX":
-      return typeof (value as { tabId?: unknown }).tabId === "number";
+      return isCaptureRequest((value as { capture?: unknown }).capture);
     case "SET_GAINS": {
       const g = value as { original?: unknown; translation?: unknown };
       return typeof g.original === "number" && typeof g.translation === "number";
@@ -319,6 +379,67 @@ export function isLikelyVirtualInput(label: string): boolean {
     isBlackHoleLabel(label) ||
     /vb-?audio|cable|virtual|loopback|soundflower/i.test(label)
   );
+}
+
+function normalizeLabel(label: string | undefined): string {
+  return (label ?? "").trim().toLowerCase();
+}
+
+/**
+ * Validate device routing for a capture mode. Returns null when OK.
+ *
+ * Device mode (Zoom desktop app) requires a *second* virtual device: Zoom's
+ * speaker goes to `remoteCaptureInput` (e.g. BlackHole 16ch) while our TX
+ * output goes to `virtualOutput` (BlackHole 2ch = Zoom mic). If both were the
+ * same device, Zoom's own output would be fed straight back into its mic and
+ * our translation would loop.
+ */
+export function validateRouting(
+  settings: LocalSettings,
+  mode: CaptureMode,
+): AppError | null {
+  if (
+    !settings.physicalMicId ||
+    !settings.headphoneOutputId ||
+    !settings.virtualOutputId
+  ) {
+    return {
+      code: "MISSING_SETTINGS",
+      message: "物理マイク・イヤホン・BlackHoleをsetupで設定してください",
+    };
+  }
+  if (!settings.brokerBaseUrl || settings.brokerBaseUrl.includes("YOUR-BROKER")) {
+    return {
+      code: "MISSING_SETTINGS",
+      message:
+        "Broker URLが未設定です。setupでCloudflare WorkerのURLを入力してください",
+    };
+  }
+  if (mode !== "device") return null;
+
+  if (!settings.remoteCaptureInputId) {
+    return {
+      code: "MISSING_SETTINGS",
+      message:
+        "Zoomアプリ用の「会議音声入力（BlackHole 16chなど）」をsetupで設定してください",
+    };
+  }
+  if (settings.remoteCaptureInputId === settings.physicalMicId) {
+    return {
+      code: "ROUTING_CONFLICT",
+      message: "会議音声入力と物理マイクに同じデバイスは指定できません",
+    };
+  }
+  const remoteLabel = normalizeLabel(settings.deviceLabels.remoteCaptureInput);
+  const virtualLabel = normalizeLabel(settings.deviceLabels.virtualOutput);
+  if (remoteLabel && remoteLabel === virtualLabel) {
+    return {
+      code: "ROUTING_CONFLICT",
+      message:
+        "会議音声入力と仮想マイク出力が同じ仮想デバイスです。ループを防ぐため、Zoomのスピーカーには別のBlackHole（例: 16ch）を使ってください",
+    };
+  }
+  return null;
 }
 
 export function classifyHttpError(

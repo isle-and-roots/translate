@@ -6,6 +6,7 @@ import type {
   RuntimeEvent,
 } from "../../shared/protocol.js";
 import { createIdleSnapshot } from "../../shared/protocol.js";
+import { platformLabel } from "../../shared/platform.js";
 
 export async function sendCommand<T extends Command>(
   command: T,
@@ -87,8 +88,10 @@ export function bindStateUi(options: {
     const elapsedEl = options.root.querySelector("[data-elapsed]");
     const costEl = options.root.querySelector("[data-cost]");
     const errorEl = options.root.querySelector("[data-error]");
+    const platformEl = options.root.querySelector("[data-platform]");
 
     if (meetingEl) meetingEl.textContent = stateLabel(state.meetingState);
+    if (platformEl) platformEl.textContent = platformLabel(state.platform);
     if (messageEl) messageEl.textContent = state.message ?? "";
     if (rxEl) rxEl.textContent = directionLabel(state.rx.state);
     if (txEl) txEl.textContent = directionLabel(state.tx.state);

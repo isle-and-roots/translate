@@ -1,8 +1,8 @@
 {
   "name": "meet-interpreter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Google Meet English↔Japanese bidirectional interpreter (Chrome extension + Cloudflare Worker)",
+  "description": "Google Meet / Zoom English↔Japanese bidirectional interpreter (Chrome extension + Cloudflare Worker)",
   "type": "module",
   "workspaces": [
     "worker"

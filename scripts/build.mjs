@@ -56,16 +56,27 @@ cpSync(join(root, "extension", "icons"), join(outDir, "icons"), {
   recursive: true,
 });
 
+// Keep in sync with detectTabPlatform() in shared/platform.ts.
+const meetingHostPermissions = [
+  "https://meet.google.com/*",
+  "https://zoom.us/*",
+  "https://*.zoom.us/*",
+  "https://zoom.com/*",
+  "https://*.zoom.com/*",
+  "https://zoomgov.com/*",
+  "https://*.zoomgov.com/*",
+];
+
 const manifest = {
   manifest_version: 3,
   name: "Meet Interpreter",
   description:
-    "Google Meet English↔Japanese bidirectional interpreter via OpenAI realtime translate",
-  version: "0.1.0",
+    "Google Meet / Zoom English↔Japanese bidirectional interpreter via OpenAI realtime translate",
+  version: "0.2.0",
   minimum_chrome_version: "116",
   permissions: ["activeTab", "tabCapture", "offscreen", "storage"],
   host_permissions: [
-    "https://meet.google.com/*",
+    ...meetingHostPermissions,
     `${brokerUrl.replace(/\/$/, "")}/*`,
     "https://api.openai.com/*",
   ],

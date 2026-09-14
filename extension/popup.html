@@ -10,13 +10,17 @@
     <div class="wrap">
       <header class="app-header">
         <h1>Meet Interpreter</h1>
-        <p>ワンクリックで英日双方向通訳</p>
+        <p>Google Meet / Zoom をワンクリックで英日双方向通訳</p>
       </header>
 
       <section class="panel">
         <div class="row">
           <span class="muted">状態</span>
           <span class="status-pill" data-meeting-label>—</span>
+        </div>
+        <div class="row">
+          <span class="muted">会議アプリ</span>
+          <span data-platform>—</span>
         </div>
         <div class="row">
           <span class="muted">受信 (EN→JA)</span>
@@ -36,6 +40,17 @@
         </div>
         <p class="hint" data-message></p>
         <p class="error" data-error></p>
+      </section>
+
+      <section class="panel">
+        <label class="field">
+          <span>接続先</span>
+          <select id="source-mode">
+            <option value="tab">前面タブ（Google Meet / Zoom ブラウザ版）</option>
+            <option value="device">Zoom デスクトップアプリ（仮想デバイス）</option>
+          </select>
+        </label>
+        <p class="hint" id="source-hint"></p>
       </section>
 
       <section class="actions">
@@ -61,6 +76,9 @@
         <div class="row"><span class="muted">物理マイク</span><span id="device-mic">—</span></div>
         <div class="row"><span class="muted">イヤホン</span><span id="device-headphone">—</span></div>
         <div class="row"><span class="muted">BlackHole</span><span id="device-virtual">—</span></div>
+        <div class="row" id="device-remote-row" hidden>
+          <span class="muted">会議音声入力</span><span id="device-remote">—</span>
+        </div>
         <div class="hint" id="pairing-status"></div>
         <div class="hint" id="broker-url"></div>
       </section>

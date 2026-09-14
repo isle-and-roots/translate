@@ -21,6 +21,8 @@ export interface AudioRouterSettings {
   translationGain?: number;
 }
 
+export type LostDeviceKind = "headphone" | "virtual" | "mic" | "remote";
+
 type ChromeMediaTrackConstraints = MediaTrackConstraints & {
   mandatory?: {
     chromeMediaSource: string;
@@ -74,12 +76,11 @@ export class AudioRouter {
   private savedTranslation = DEFAULT_TRANSLATION_GAIN;
   private listeningOriginalOnly = false;
   private deviceChangeHandler: (() => void) | null = null;
-  private onDeviceLost:
-    | ((kind: "headphone" | "virtual" | "mic") => void)
-    | null = null;
+  private onDeviceLost: ((kind: LostDeviceKind) => void) | null = null;
   private headphoneOutputId = "";
   private virtualOutputId = "";
   private physicalMicId = "";
+  private remoteCaptureInputId = "";
 
   async initialize(settings: AudioRouterSettings): Promise<void> {
     await this.dispose();
@@ -158,14 +159,17 @@ export class AudioRouter {
     this.levelListener = listener;
   }
 
-  setDeviceLostHandler(
-    handler: ((kind: "headphone" | "virtual" | "mic") => void) | null,
-  ): void {
+  setDeviceLostHandler(handler: ((kind: LostDeviceKind) => void) | null): void {
     this.onDeviceLost = handler;
   }
 
   setPhysicalMicId(deviceId: string): void {
     this.physicalMicId = deviceId;
+  }
+
+  /** Device-capture mode only; pass "" to stop watching. */
+  setRemoteCaptureInputId(deviceId: string): void {
+    this.remoteCaptureInputId = deviceId;
   }
 
   attachTabMonitor(tabStream: MediaStream): void {
@@ -401,6 +405,11 @@ export class AudioRouter {
         this.onDeviceLost?.("headphone");
       } else if (this.virtualOutputId && !outputs.has(this.virtualOutputId)) {
         this.onDeviceLost?.("virtual");
+      } else if (
+        this.remoteCaptureInputId &&
+        !inputs.has(this.remoteCaptureInputId)
+      ) {
+        this.onDeviceLost?.("remote");
       } else if (this.physicalMicId && !inputs.has(this.physicalMicId)) {
         this.onDeviceLost?.("mic");
       }
@@ -421,6 +430,44 @@ export async function acquireTabStream(streamId: string): Promise<MediaStream> {
     video: false,
   };
   return navigator.mediaDevices.getUserMedia(constraints);
+}
+
+/**
+ * Zoom desktop app path: capture the virtual input (e.g. BlackHole 16ch) that
+ * the Zoom app's speaker is routed to. All processing is disabled so the
+ * remote speech reaches the translator untouched, like tab capture does.
+ */
+export async function acquireDeviceLoopback(
+  deviceId: string,
+): Promise<MediaStream> {
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      audio: {
+        deviceId: { exact: deviceId },
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        channelCount: { ideal: 2 },
+      },
+      video: false,
+    });
+  } catch (error) {
+    const name = error instanceof Error ? error.name : "";
+    if (name === "NotFoundError" || name === "OverconstrainedError") {
+      throw appError(
+        "DEVICE_MISSING",
+        "会議音声入力（BlackHole 16chなど）が見つかりません。setupで再選択してください",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    if (name === "NotAllowedError") {
+      throw appError(
+        "PERMISSION_DENIED",
+        "マイク権限がありません。setupで「マイク権限を許可」を実行してください",
+      );
+    }
+    throw error;
+  }
 }
 
 export async function acquirePhysicalMic(

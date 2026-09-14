@@ -2,6 +2,7 @@ import {
   createDefaultSettings,
   isBlackHoleLabel,
   isLikelyVirtualInput,
+  validateRouting,
   type LocalSettings,
 } from "../../shared/protocol.js";
 import { loadSettings, requestId, sendCommand } from "./ui-common.js";
@@ -36,14 +37,25 @@ async function populateDevices(settings: LocalSettings): Promise<void> {
   const micSelect = qs<HTMLSelectElement>("#physical-mic");
   const headphoneSelect = qs<HTMLSelectElement>("#headphone-output");
   const virtualSelect = qs<HTMLSelectElement>("#virtual-output");
+  const remoteSelect = qs<HTMLSelectElement>("#remote-capture-input");
 
   micSelect.innerHTML = "";
   headphoneSelect.innerHTML = "";
   virtualSelect.innerHTML = "";
+  remoteSelect.innerHTML = "";
+
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "使わない（Meet / Zoom ブラウザ版のみ）";
+  none.selected = !settings.remoteCaptureInputId;
+  remoteSelect.append(none);
 
   for (const device of devices) {
     if (device.kind === "audioinput") {
-      if (isLikelyVirtualInput(device.label)) continue;
+      if (isLikelyVirtualInput(device.label)) {
+        remoteSelect.append(option(device, settings.remoteCaptureInputId));
+        continue;
+      }
       micSelect.append(option(device, settings.physicalMicId));
     }
     if (device.kind === "audiooutput") {
@@ -58,6 +70,12 @@ async function populateDevices(settings: LocalSettings): Promise<void> {
   if (virtualSelect.options.length === 0) {
     for (const device of devices.filter((d) => d.kind === "audiooutput")) {
       virtualSelect.append(option(device, settings.virtualOutputId));
+    }
+  }
+  // Same fallback for the Zoom-app loopback input when no virtual input is detected
+  if (remoteSelect.options.length === 1) {
+    for (const device of devices.filter((d) => d.kind === "audioinput")) {
+      remoteSelect.append(option(device, settings.remoteCaptureInputId));
     }
   }
 }
@@ -105,6 +123,7 @@ async function init(): Promise<void> {
     const micSelect = qs<HTMLSelectElement>("#physical-mic");
     const headphoneSelect = qs<HTMLSelectElement>("#headphone-output");
     const virtualSelect = qs<HTMLSelectElement>("#virtual-output");
+    const remoteSelect = qs<HTMLSelectElement>("#remote-capture-input");
     const brokerBaseUrl = qs<HTMLInputElement>("#broker-url").value.trim();
     const pairingToken = qs<HTMLInputElement>("#pairing-token").value.trim();
 
@@ -122,19 +141,32 @@ async function init(): Promise<void> {
       return;
     }
 
+    const remoteCaptureInputId = remoteSelect.value;
     const next: LocalSettings = {
       ...createDefaultSettings(brokerBaseUrl),
       ...settings,
       physicalMicId: micSelect.value,
       headphoneOutputId: headphoneSelect.value,
       virtualOutputId: virtualSelect.value,
+      remoteCaptureInputId,
       brokerBaseUrl,
       deviceLabels: {
         physicalMic: selectedLabel(micSelect),
         headphoneOutput: selectedLabel(headphoneSelect),
         virtualOutput: selectedLabel(virtualSelect),
+        ...(remoteCaptureInputId
+          ? { remoteCaptureInput: selectedLabel(remoteSelect) }
+          : {}),
       },
     };
+
+    if (remoteCaptureInputId) {
+      const routingError = validateRouting(next, "device");
+      if (routingError) {
+        status.textContent = routingError.message;
+        return;
+      }
+    }
 
     const saveReply = await sendCommand({
       type: "SAVE_SETTINGS",
@@ -163,8 +195,9 @@ async function init(): Promise<void> {
         "接続コードは現在のブラウザセッションに保持されています";
     }
 
-    status.textContent =
-      "設定を保存しました。MeetではマイクをBlackHole、スピーカーをイヤホンにしてください。";
+    status.textContent = remoteCaptureInputId
+      ? "設定を保存しました。Zoomアプリではマイク=BlackHole 2ch、スピーカー=会議音声入力に選んだデバイスにしてください。"
+      : "設定を保存しました。Meet / Zoom（ブラウザ）ではマイクをBlackHole、スピーカーをイヤホンにしてください。";
   });
 
   qs<HTMLButtonElement>("#btn-clear-pairing").addEventListener("click", async () => {
