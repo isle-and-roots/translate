@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            sokuji/package-lock.json
+            sokuji/extension/package-lock.json
+      - run: npm run setup
+      - run: npm run build:extension
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sokuji-extension
+          path: dist/sokuji-extension-*.zip
+          if-no-files-found: error

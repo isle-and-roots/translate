@@ -1,0 +1,4 @@
+[submodule "sokuji"]
+	path = sokuji
+	url = https://github.com/kizuna-ai-lab/sokuji.git
+	shallow = true
