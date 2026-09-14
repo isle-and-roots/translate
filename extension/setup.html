@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Meet Interpreter Setup</title>
+    <link rel="stylesheet" href="styles/app.css" />
+  </head>
+  <body class="setup">
+    <div class="wrap" style="max-width: 720px; margin: 0 auto">
+      <header class="app-header">
+        <h1>Meet Interpreter 初期設定</h1>
+        <p>マイク許可・音声デバイス・接続コード・Broker URLを設定します（Google Meet / Zoom 対応）。</p>
+      </header>
+
+      <section class="panel">
+        <h2 style="margin: 0; font-size: 15px">1. 権限</h2>
+        <p class="hint">
+          初回は通常の拡張タブでマイク許可を取得します。一時トラックは直ちに停止します。
+        </p>
+        <button id="btn-permission" class="primary">マイク権限を許可</button>
+        <button id="btn-refresh-devices">デバイス一覧を更新</button>
+      </section>
+
+      <section class="panel">
+        <h2 style="margin: 0; font-size: 15px">2. 音声デバイス</h2>
+        <label class="field">
+          <span>物理マイク（BlackHole入力は選択禁止）</span>
+          <select id="physical-mic"></select>
+        </label>
+        <label class="field">
+          <span>イヤホン出力</span>
+          <select id="headphone-output"></select>
+        </label>
+        <label class="field">
+          <span>仮想マイク出力（BlackHole 2ch）</span>
+          <select id="virtual-output"></select>
+        </label>
+      </section>
+
+      <section class="panel">
+        <h2 style="margin: 0; font-size: 15px">2b. Zoom デスクトップアプリ（任意）</h2>
+        <p class="hint">
+          Zoomアプリはブラウザのタブではないため、Zoomのスピーカーを <strong>2つ目の仮想デバイス</strong>（例:
+          BlackHole 16ch）に向け、その入力をここで選びます。Meet / Zoom（ブラウザ）だけを使う場合は未設定で構いません。
+          仮想マイク出力（2ch）と同じデバイスは選べません。
+        </p>
+        <label class="field">
+          <span>会議音声入力（Zoomアプリのスピーカー先 / BlackHole 16ch など）</span>
+          <select id="remote-capture-input">
+            <option value="">使わない</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="panel">
+        <h2 style="margin: 0; font-size: 15px">3. 認証とBroker</h2>
+        <label class="field">
+          <span>Cloudflare Worker URL</span>
+          <input id="broker-url" type="url" placeholder="https://xxxx.workers.dev" />
+        </label>
+        <label class="field">
+          <span>接続コード（Bearer・sessionのみ保存）</span>
+          <input id="pairing-token" type="password" autocomplete="off" placeholder="再入力が必要な場合のみ" />
+        </label>
+        <div class="hint" id="pairing-status"></div>
+        <div class="grid-2">
+          <button id="btn-save" class="primary">設定を保存</button>
+          <button id="btn-clear-pairing" class="danger">接続コードを消去</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2 style="margin: 0; font-size: 15px">4. 会議アプリ側の確認</h2>
+        <p class="hint"><strong>Google Meet / Zoom（ブラウザ）</strong></p>
+        <ol class="hint">
+          <li>BlackHole 2ch をインストールし、Chromeを再起動</li>
+          <li>会議アプリのマイクを BlackHole 2ch、スピーカーをイヤホンに設定</li>
+          <li>Zoomはブラウザ版（URLに /wc/ を含む「ブラウザから参加」）で入室</li>
+          <li>日本語原音が相手に届かないことをテスト会議で確認</li>
+          <li>拡張の「開始（双方向）」で受信・送信がすぐ有効になることを確認</li>
+        </ol>
+        <p class="hint"><strong>Zoom デスクトップアプリ</strong></p>
+        <ol class="hint">
+          <li>BlackHole 16ch（2ch とは別）を追加インストール</li>
+          <li>Zoom の設定 &gt; オーディオ: マイク = BlackHole 2ch、スピーカー = BlackHole 16ch</li>
+          <li>Zoom の「オリジナルサウンド」を有効にし、背景雑音抑制を「低」にする（英訳音声の欠落防止）</li>
+          <li>上の 2b で会議音声入力 = BlackHole 16ch を選択して保存</li>
+          <li>拡張のポップアップで「Zoom アプリ」を選んで開始</li>
+        </ol>
+        <p id="status" class="hint"></p>
+      </section>
+    </div>
+    <script type="module" src="setup.js"></script>
+  </body>
+</html>
