@@ -1,9 +1,28 @@
 import {
+  detectTabPlatform,
+  platformLabel,
+  type CaptureMode,
+  type CaptureRequest,
+  type TabPlatformResult,
+} from "../../shared/platform.js";
+import type { LocalSettings } from "../../shared/protocol.js";
+import {
   bindStateUi,
   loadSettings,
   requestId,
   sendCommand,
 } from "./ui-common.js";
+
+interface ActiveTabInfo {
+  tabId: number | null;
+  detected: TabPlatformResult;
+}
+
+let activeTab: ActiveTabInfo = {
+  tabId: null,
+  detected: { platform: null, reason: "not_meeting" },
+};
+let currentSettings: LocalSettings | null = null;
 
 const root = document.body;
 const ui = bindStateUi({
@@ -14,10 +33,21 @@ const ui = bindStateUi({
     const txBtn = qs<HTMLButtonElement>("#btn-tx");
     const listenBtn = qs<HTMLButtonElement>("#btn-listen");
     const renewBtn = qs<HTMLButtonElement>("#btn-renew");
+    const sourceSelect = qs<HTMLSelectElement>("#source-mode");
 
     const running = state.meetingState !== "IDLE" && state.meetingState !== "STOPPING";
     startBtn.disabled = running;
     stopBtn.disabled = !running && state.meetingState === "IDLE";
+    sourceSelect.disabled = running;
+
+    qs("[data-platform]").textContent = running
+      ? platformLabel(state.platform)
+      : platformLabel(previewPlatform(sourceSelect.value as CaptureMode));
+    qs<HTMLElement>("#device-remote-row").hidden =
+      !(running ? state.captureMode === "device" : sourceSelect.value === "device");
+    qs("#device-remote").textContent = running
+      ? (state.devices.remoteCaptureInputLabel ?? "未設定")
+      : (currentSettings?.deviceLabels.remoteCaptureInput ?? "未設定");
     txBtn.disabled = !(
       state.meetingState === "ACTIVE_RX" ||
       state.meetingState === "ACTIVE_BOTH" ||
@@ -60,6 +90,45 @@ function qs<T extends Element = Element>(selector: string): T {
   return el as T;
 }
 
+function previewPlatform(mode: CaptureMode) {
+  return mode === "device" ? "zoom-app" : activeTab.detected.platform;
+}
+
+async function readActiveTab(): Promise<ActiveTabInfo> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return {
+    tabId: tab?.id ?? null,
+    detected: detectTabPlatform(tab?.url),
+  };
+}
+
+/** Prefer the front tab when it is a meeting; otherwise fall back to the Zoom app if configured. */
+function defaultCaptureMode(settings: LocalSettings): CaptureMode {
+  if (activeTab.detected.platform) return "tab";
+  return settings.remoteCaptureInputId ? "device" : "tab";
+}
+
+function sourceHint(mode: CaptureMode): string {
+  if (mode === "device") {
+    return currentSettings?.remoteCaptureInputId
+      ? "Zoomアプリ: スピーカー=会議音声入力のデバイス、マイク=BlackHole 2ch に設定してください"
+      : "Zoomアプリ用の会議音声入力が未設定です。設定（2b）で BlackHole 16ch などを選んでください";
+  }
+  const { platform, reason } = activeTab.detected;
+  if (platform === "meet") return "前面タブ: Google Meet を検出しました";
+  if (platform === "zoom-web") return "前面タブ: Zoom（ブラウザ版）を検出しました";
+  if (reason === "zoom_not_web_client") {
+    return "Zoomのページですがブラウザ版ではありません。「ブラウザから参加」を選ぶか、接続先を Zoom アプリに切り替えてください";
+  }
+  return "Google Meet または Zoom（ブラウザ版）のタブを前面にしてください";
+}
+
+function refreshSourceUi(): void {
+  const sourceSelect = qs<HTMLSelectElement>("#source-mode");
+  qs("#source-hint").textContent = sourceHint(sourceSelect.value as CaptureMode);
+  ui.render(ui.getState());
+}
+
 async function refresh(): Promise<void> {
   const reply = await sendCommand({ type: "GET_STATE", requestId: requestId() });
   if (reply.state) ui.render(reply.state);
@@ -67,19 +136,41 @@ async function refresh(): Promise<void> {
 
 async function init(): Promise<void> {
   const { settings, hasPairing, state } = await loadSettings();
+  currentSettings = settings;
+  activeTab = await readActiveTab();
+
+  const sourceSelect = qs<HTMLSelectElement>("#source-mode");
+  sourceSelect.value =
+    state.meetingState !== "IDLE" && state.captureMode
+      ? state.captureMode
+      : defaultCaptureMode(settings);
+  sourceSelect.addEventListener("change", refreshSourceUi);
+
   ui.render(state);
+  refreshSourceUi();
   qs("#pairing-status").textContent = hasPairing
     ? "接続コード: セッション内で設定済み"
     : "接続コード未設定（setupへ）";
   qs("#broker-url").textContent = settings.brokerBaseUrl;
 
   qs<HTMLButtonElement>("#btn-start").addEventListener("click", async () => {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) return;
+    qs("[data-error]").textContent = "";
+    let capture: CaptureRequest;
+    if (sourceSelect.value === "device") {
+      capture = { mode: "device" };
+    } else {
+      activeTab = await readActiveTab();
+      refreshSourceUi();
+      if (activeTab.tabId === null) {
+        qs("[data-error]").textContent = "前面タブを取得できませんでした";
+        return;
+      }
+      capture = { mode: "tab", tabId: activeTab.tabId };
+    }
     const reply = await sendCommand({
       type: "START_RX",
       requestId: requestId(),
-      tabId: tab.id,
+      capture,
     });
     if (reply.state) ui.render(reply.state);
     if (!reply.ok && reply.error) {

@@ -24,9 +24,21 @@ describe("protocol", () => {
 
   it("validates commands", () => {
     expect(
-      isCommand({ type: "START_RX", requestId: "a", tabId: 1 }),
+      isCommand({
+        type: "START_RX",
+        requestId: "a",
+        capture: { mode: "tab", tabId: 1 },
+      }),
+    ).toBe(true);
+    expect(
+      isCommand({ type: "START_RX", requestId: "a", capture: { mode: "device" } }),
     ).toBe(true);
     expect(isCommand({ type: "START_RX", requestId: "a" })).toBe(false);
+    expect(
+      isCommand({ type: "START_RX", requestId: "a", capture: { mode: "tab" } }),
+    ).toBe(false);
+    // legacy shape (tabId at top level) is rejected
+    expect(isCommand({ type: "START_RX", requestId: "a", tabId: 1 })).toBe(false);
     expect(isCommand({ type: "STOP_ALL", requestId: "b" })).toBe(true);
     expect(isCommand({ type: "NOPE", requestId: "c" })).toBe(false);
   });
@@ -63,6 +75,14 @@ describe("protocol", () => {
     expect(s.schemaVersion).toBe(1);
     expect(s.brokerBaseUrl).toBe("https://example.workers.dev");
     expect(s.originalGain).toBe(0.2);
+    expect(s.remoteCaptureInputId).toBe("");
+  });
+
+  it("idle snapshot has no platform or capture mode", () => {
+    const snap = createIdleSnapshot();
+    expect(snap.platform).toBeNull();
+    expect(snap.captureMode).toBeNull();
+    expect(snap.devices.remoteCaptureInputId).toBeNull();
   });
 });
 

@@ -2,12 +2,17 @@ import {
   createDefaultSettings,
   createIdleSnapshot,
   isCommand,
+  validateRouting,
+  type CaptureRequest,
+  type CaptureSource,
   type Command,
   type CommandReply,
   type LocalSettings,
   type MeetingSnapshot,
+  type OffscreenStartMessage,
   type RuntimeEvent,
 } from "../../shared/protocol.js";
+import { detectTabPlatform } from "../../shared/platform.js";
 import { appError, toAppError } from "../../shared/errors.js";
 
 const OFFSCREEN_URL = "offscreen.html";
@@ -64,7 +69,7 @@ async function ensureOffscreen(): Promise<void> {
       chrome.offscreen.Reason.WEB_RTC,
     ],
     justification:
-      "Capture Meet tab audio and maintain bidirectional WebRTC translation sessions.",
+      "Capture meeting audio (Meet/Zoom tab or virtual device) and maintain bidirectional WebRTC translation sessions.",
   });
   try {
     await creatingOffscreen;
@@ -90,24 +95,58 @@ async function sendToOffscreen<T>(message: unknown): Promise<T> {
   return (await chrome.runtime.sendMessage(message)) as T;
 }
 
-async function getActiveMeetTab(
-  preferredTabId?: number,
-): Promise<chrome.tabs.Tab> {
-  if (preferredTabId !== undefined) {
-    const tab = await chrome.tabs.get(preferredTabId);
-    if (!tab.url?.startsWith("https://meet.google.com/")) {
-      throw appError("NOT_MEET_TAB", "選択タブがGoogle Meetではありません");
-    }
-    return tab;
-  }
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id || !tab.url?.startsWith("https://meet.google.com/")) {
-    throw appError(
-      "NOT_MEET_TAB",
-      "Google Meetタブを前面にしてから開始してください",
+function notMeetingTabError(
+  reason: "not_meeting" | "zoom_not_web_client",
+  selected: boolean,
+): ReturnType<typeof appError> {
+  if (reason === "zoom_not_web_client") {
+    return appError(
+      "NOT_MEETING_TAB",
+      "Zoomのタブですがブラウザ版（/wc/）ではありません。Zoomの「ブラウザから参加」を選ぶか、Zoomアプリモードで開始してください",
     );
   }
-  return tab;
+  return appError(
+    "NOT_MEETING_TAB",
+    selected
+      ? "選択タブがGoogle Meet / Zoom（ブラウザ）ではありません"
+      : "Google Meet または Zoom（ブラウザ）のタブを前面にしてから開始してください。Zoomアプリの場合はZoomアプリモードを選んでください",
+  );
+}
+
+async function resolveTabSource(
+  preferredTabId?: number,
+): Promise<Extract<CaptureSource, { kind: "tab" }>> {
+  let tab: chrome.tabs.Tab | undefined;
+  if (preferredTabId !== undefined) {
+    tab = await chrome.tabs.get(preferredTabId);
+  } else {
+    [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  }
+  if (!tab?.id) {
+    throw appError("NOT_MEETING_TAB", "タブIDを取得できません");
+  }
+  const detected = detectTabPlatform(tab.url);
+  if (!detected.platform) {
+    throw notMeetingTabError(detected.reason, preferredTabId !== undefined);
+  }
+  return {
+    kind: "tab",
+    platform: detected.platform,
+    tabId: tab.id,
+    tabTitle: tab.title ?? null,
+  };
+}
+
+async function resolveCaptureSource(
+  capture: CaptureRequest,
+  settings: LocalSettings,
+): Promise<CaptureSource> {
+  if (capture.mode === "device") {
+    const routing = validateRouting(settings, "device");
+    if (routing) throw routing;
+    return { kind: "device", platform: "zoom-app" };
+  }
+  return resolveTabSource(capture.tabId);
 }
 
 async function handleCommand(
@@ -192,19 +231,18 @@ async function handleCommand(
         return { requestId: command.requestId, ok: true };
       }
       case "START_RX": {
-        const tab = await getActiveMeetTab(command.tabId);
-        if (!tab.id) throw appError("NOT_MEET_TAB", "タブIDを取得できません");
         const settings = await getSettings();
+        const source = await resolveCaptureSource(command.capture, settings);
         const pairing = await getPairingToken();
-        const reply = await sendToOffscreen<CommandReply>({
+        const message: OffscreenStartMessage = {
           channel: "offscreen",
           type: "START_RX",
           requestId: command.requestId,
-          tabId: tab.id,
-          tabTitle: tab.title ?? null,
+          source,
           settings,
           hasPairing: Boolean(pairing),
-        });
+        };
+        const reply = await sendToOffscreen<CommandReply>(message);
         if (reply.state) latestState = reply.state;
         return reply;
       }

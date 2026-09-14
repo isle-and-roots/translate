@@ -39,6 +39,10 @@ Content-Type: application/json
 
 ## 拡張の永続データ
 
-- `storage.local`: デバイス ID、音量、Broker URL、表示名
+- `storage.local`: デバイス ID（物理マイク / イヤホン / BlackHole 出力 / Zoom アプリ用会議音声入力）、音量、Broker URL、表示名
 - `storage.session`: 接続コードのみ
 - 会話・字幕・OpenAI 短期トークンは永続化しない
+
+## Zoom
+
+Zoom ブラウザ版・デスクトップアプリの配線と受入項目は [zoom.md](zoom.md) を参照。Worker 側に Zoom 固有の設定はありません（会議音声は Worker を経由しない）。

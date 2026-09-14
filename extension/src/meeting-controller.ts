@@ -7,19 +7,24 @@ import {
   IDLE_WARN_MS,
   SESSION_RENEW_STOP_MS,
   SESSION_RENEW_WARN_MS,
+  validateRouting,
   type AppError,
+  type CaptureSource,
   type DirectionState,
   type LocalSettings,
   type MeetingSnapshot,
   type MeetingState,
 } from "../../shared/protocol.js";
+import { platformLabel } from "../../shared/platform.js";
 import { appError, toAppError } from "../../shared/errors.js";
 import {
+  acquireDeviceLoopback,
   acquirePhysicalMic,
   acquireTabStream,
   AudioRouter,
   cloneAudioTrack,
   stopStream,
+  type LostDeviceKind,
 } from "./audio-router.js";
 import { createBrokerClient } from "./broker-client.js";
 import {
@@ -50,8 +55,8 @@ export class MeetingController {
 
   private snapshot = createIdleSnapshot();
   private settings: LocalSettings | null = null;
-  private tabStream: MediaStream | null = null;
-  private tabMonitorStream: MediaStream | null = null;
+  /** Remote-party audio: tab capture (Meet / Zoom web) or virtual-device loopback (Zoom app). */
+  private remoteStream: MediaStream | null = null;
   private rxSendStream: MediaStream | null = null;
   private micStream: MediaStream | null = null;
   private rxHandle: TranslationHandle | null = null;
@@ -95,32 +100,41 @@ export class MeetingController {
     return structuredClone(this.snapshot);
   }
 
-  async startRx(tabId: number, tabTitle: string | null): Promise<MeetingSnapshot> {
+  async startRx(source: CaptureSource): Promise<MeetingSnapshot> {
     if (this.snapshot.meetingState !== "IDLE") {
       throw appError("ALREADY_RUNNING", "すでに会議セッションが動作中です");
     }
 
+    const captureMode = source.kind;
     this.stopRequested = false;
     this.setMeetingState("PREFLIGHT");
-    this.snapshot.tabId = tabId;
-    this.snapshot.tabTitle = tabTitle;
+    this.snapshot.platform = source.platform;
+    this.snapshot.captureMode = captureMode;
+    this.snapshot.tabId = source.kind === "tab" ? source.tabId : null;
+    this.snapshot.tabTitle = source.kind === "tab" ? source.tabTitle : null;
     this.snapshot.lastError = null;
     this.snapshot.message = "準備中…";
     this.emit();
 
     try {
       const settings = await this.getSettings();
-      this.validateSettings(settings);
+      const routingError = validateRouting(settings, captureMode);
+      if (routingError) throw routingError;
       this.settings = settings;
       this.snapshot.originalGain = settings.originalGain;
       this.snapshot.translationGain = settings.translationGain;
+      const usesRemoteDevice = captureMode === "device";
       this.snapshot.devices = {
         physicalMicId: settings.physicalMicId,
         headphoneOutputId: settings.headphoneOutputId,
         virtualOutputId: settings.virtualOutputId,
+        remoteCaptureInputId: usesRemoteDevice ? settings.remoteCaptureInputId : null,
         physicalMicLabel: settings.deviceLabels.physicalMic ?? null,
         headphoneOutputLabel: settings.deviceLabels.headphoneOutput ?? null,
         virtualOutputLabel: settings.deviceLabels.virtualOutput ?? null,
+        remoteCaptureInputLabel: usesRemoteDevice
+          ? (settings.deviceLabels.remoteCaptureInput ?? null)
+          : null,
         sinkReadyRx: false,
         sinkReadyTx: false,
       };
@@ -137,6 +151,9 @@ export class MeetingController {
         translationGain: settings.translationGain,
       });
       this.audio.setPhysicalMicId(settings.physicalMicId);
+      this.audio.setRemoteCaptureInputId(
+        usesRemoteDevice ? settings.remoteCaptureInputId : "",
+      );
       const sinks = await this.audio.verifySinks();
       this.snapshot.devices.sinkReadyRx = sinks.rx;
       this.snapshot.devices.sinkReadyTx = sinks.tx;
@@ -145,14 +162,22 @@ export class MeetingController {
       }
 
       this.setMeetingState("CAPTURING");
-      this.snapshot.message = "Meetタブ音声を取得中…";
+      this.snapshot.message =
+        source.kind === "tab"
+          ? `${platformLabel(source.platform)}のタブ音声を取得中…`
+          : "Zoomアプリの音声（仮想デバイス）を取得中…";
       this.emit();
 
-      const streamId = await this.requestTabStreamId(tabId);
-      this.tabStream = await acquireTabStream(streamId);
-      this.tabMonitorStream = this.tabStream;
-      this.rxSendStream = cloneAudioTrack(this.tabStream);
-      this.audio.attachTabMonitor(this.tabMonitorStream);
+      if (source.kind === "tab") {
+        const streamId = await this.requestTabStreamId(source.tabId);
+        this.remoteStream = await acquireTabStream(streamId);
+      } else {
+        this.remoteStream = await acquireDeviceLoopback(
+          settings.remoteCaptureInputId,
+        );
+      }
+      this.rxSendStream = cloneAudioTrack(this.remoteStream);
+      this.audio.attachTabMonitor(this.remoteStream);
 
       this.meetingWallStartedAt = Date.now();
       this.snapshot.meetingStartedAtMs = this.meetingWallStartedAt;
@@ -171,8 +196,7 @@ export class MeetingController {
       // UX: one-click start enables both directions immediately.
       try {
         await this.enableTx();
-        this.snapshot.message =
-          "双方向通訳中。相手の英語→日本語、自分の声→英語でMeetへ。";
+        this.snapshot.message = `双方向通訳中。相手の英語→日本語、自分の声→英語で${platformLabel(source.platform)}へ。`;
         this.emit();
       } catch (txError) {
         // Keep RX so the user can at least listen; TX emergency button retries.
@@ -388,11 +412,10 @@ export class MeetingController {
 
       stopStream(this.micStream);
       stopStream(this.rxSendStream);
-      stopStream(this.tabStream);
+      stopStream(this.remoteStream);
       this.micStream = null;
       this.rxSendStream = null;
-      this.tabStream = null;
-      this.tabMonitorStream = null;
+      this.remoteStream = null;
 
       await this.audio.dispose();
       this.stopTicker();
@@ -588,8 +611,8 @@ export class MeetingController {
 
     try {
       // Recreate send stream clone if needed
-      if (!this.rxSendStream && this.tabStream) {
-        this.rxSendStream = cloneAudioTrack(this.tabStream);
+      if (!this.rxSendStream && this.remoteStream) {
+        this.rxSendStream = cloneAudioTrack(this.remoteStream);
       }
       await this.connectRx();
       this.snapshot.message = "受信を復旧しました";
@@ -600,13 +623,17 @@ export class MeetingController {
     }
   }
 
-  private async handleDeviceLost(
-    kind: "headphone" | "virtual" | "mic",
-  ): Promise<void> {
+  private async handleDeviceLost(kind: LostDeviceKind): Promise<void> {
     if (this.stopRequested || this.snapshot.meetingState === "IDLE") return;
     if (kind === "headphone") {
       await this.stopAllInternal(
         "イヤホンが切断されたため、ループ回避のため全停止しました",
+      );
+      return;
+    }
+    if (kind === "remote") {
+      await this.stopAllInternal(
+        "Zoomアプリの会議音声入力（仮想デバイス）が消失したため全停止しました",
       );
       return;
     }
@@ -619,25 +646,6 @@ export class MeetingController {
     await this.disableTx(
       "物理マイクが消失したため送信を停止しました。既定入力への代替はしません。",
     );
-  }
-
-  private validateSettings(settings: LocalSettings): void {
-    if (
-      !settings.physicalMicId ||
-      !settings.headphoneOutputId ||
-      !settings.virtualOutputId
-    ) {
-      throw appError(
-        "MISSING_SETTINGS",
-        "物理マイク・イヤホン・BlackHoleをsetupで設定してください",
-      );
-    }
-    if (!settings.brokerBaseUrl || settings.brokerBaseUrl.includes("YOUR-BROKER")) {
-      throw appError(
-        "MISSING_SETTINGS",
-        "Broker URLが未設定です。setupでCloudflare WorkerのURLを入力してください",
-      );
-    }
   }
 
   private setMeetingState(state: MeetingState): void {
@@ -668,7 +676,7 @@ export class MeetingController {
       this.setMeetingState(tx === "connecting" ? "CONNECTING_TX" : "CONNECTING_RX");
       return;
     }
-    if (this.tabStream) {
+    if (this.remoteStream) {
       this.setMeetingState("CAPTURING");
       return;
     }
